@@ -377,7 +377,21 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
 <script>
+const firebaseConfig = {
+  apiKey: "AIzaSyDoJyZR7JHnITHjHHsCjOW-qPifBDAegG8",
+  authDomain: "wwot-professions.firebaseapp.com",
+  databaseURL: "https://wwot-professions-default-rtdb.firebaseio.com",
+  projectId: "wwot-professions",
+  storageBucket: "wwot-professions.firebasestorage.app",
+  messagingSenderId: "198395292456",
+  appId: "1:198395292456:web:af911d93814dc92b003e1d"
+};
+firebase.initializeApp(firebaseConfig);
+const rosterRef = firebase.database().ref('roster');
+
 const ICONS = {
   alchemy: '<svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6"/><path d="M10 2v6l-5.5 9.5A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-3.5L14 8V2"/><path d="M8 15h8"/></svg>',
   blacksmithing: '<svg viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l6-6"/><path d="M13.5 4.5l6 6-3.5 3.5-6-6z"/><path d="M9 9l2 2"/><path d="M6 15l3 3"/></svg>',
@@ -410,7 +424,6 @@ const PROFESSIONS = [
   {id:'fishing', name:'Fishing', cat:'secondary'}
 ];
 
-const STORAGE_KEY = 'wwot-tbc-profession-roster';
 let roster = {};
 
 function emptyRoster(){
@@ -419,21 +432,27 @@ function emptyRoster(){
   return r;
 }
 
-async function loadRoster(){
-  try{
-    const res = await window.storage.get(STORAGE_KEY, true);
-    roster = (res && res.value) ? JSON.parse(res.value) : emptyRoster();
+// Live sync: fires immediately with current data, then again whenever
+// anyone (on any device) adds/removes an entry. This replaces the old
+// window.storage calls, which only worked inside the Claude artifact
+// preview and never persisted on a real hosted page.
+function loadRoster(){
+  rosterRef.on('value', (snapshot) => {
+    const data = snapshot.val();
+    roster = data || emptyRoster();
     PROFESSIONS.forEach(p => { if(!roster[p.id]) roster[p.id] = []; });
-  }catch(e){
-    roster = emptyRoster();
-  }
-  render();
+    render();
+  }, (err) => {
+    console.error(err);
+    showToast('Could not connect — check Firebase rules');
+  });
 }
 
 async function saveRoster(){
   try{
-    await window.storage.set(STORAGE_KEY, JSON.stringify(roster), true);
+    await rosterRef.set(roster);
   }catch(e){
+    console.error(e);
     showToast('Save failed — check connection');
   }
 }
@@ -574,9 +593,17 @@ document.getElementById('discord-toggle').addEventListener('click', async () => 
   }
 });
 
-document.getElementById('refresh-btn').addEventListener('click', () => {
-  loadRoster();
-  showToast('Refreshed');
+document.getElementById('refresh-btn').addEventListener('click', async () => {
+  try{
+    const snap = await rosterRef.once('value');
+    const data = snap.val();
+    roster = data || emptyRoster();
+    PROFESSIONS.forEach(p => { if(!roster[p.id]) roster[p.id] = []; });
+    render();
+    showToast('Refreshed');
+  }catch(e){
+    showToast('Could not refresh — check connection');
+  }
 });
 
 loadRoster();
